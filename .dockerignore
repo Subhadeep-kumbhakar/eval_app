@@ -1,0 +1,16 @@
+venv/
+.env
+chroma_db/
+database/evaluation.db
+__pycache__/
+*.pyc
+*.pyo
+test_*.py
+test_*.pdf
+*.egg-info/
+.git/
+.gitignore
+PROJECT_IDEAS.txt
+README.md
+*.md
+.claude/

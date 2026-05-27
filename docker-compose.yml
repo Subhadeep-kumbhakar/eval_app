@@ -1,0 +1,25 @@
+services:
+  eval-app:
+    build: .
+    container_name: eval-app
+    ports:
+      - "8501:8501"
+    volumes:
+      - eval_db:/app/database
+      - eval_chroma:/app/chroma_db
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          memory: 900M
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  eval_db:
+  eval_chroma:
