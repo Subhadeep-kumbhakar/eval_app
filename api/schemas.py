@@ -21,7 +21,7 @@ class StudentRegister(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-    role: str  # "teacher" or "student"
+    role: str
 
 
 class TokenResponse(BaseModel):
@@ -31,40 +31,18 @@ class TokenResponse(BaseModel):
     user_id: int
 
 
-# Exam Schemas
-class QuestionCreate(BaseModel):
-    question_type: str
-    question_text: str
-    options: List[str] = []
-    correct_answer: str = ""
-    marks: float
-    topic: str = ""
-    difficulty: str = "medium"
-    question_number: int
-
-
-class ExamCreate(BaseModel):
-    title: str
-    total_marks: float
-    num_mcq: int
-    num_fill_blanks: int
-    num_subjective: int
-    marks_per_mcq: float = 1.0
-    marks_per_fill: float = 2.0
-    marks_per_subjective: float = 5.0
-    topic_weightage: Dict[str, float] = {}
-    evaluation_strictness: str = "medium"
-    collection_name: str = ""
-    questions: List[QuestionCreate] = []
-
-
+# Safe Question & Exam Schemas
 class QuestionOut(BaseModel):
-    id: int
-    question_type: str
-    question_text: str
-    options: List[str]
-    marks: float
-    question_number: int
+    id: Optional[int] = None
+    exam_id: Optional[int] = None
+    question_type: Optional[str] = "mcq"
+    question_text: Optional[str] = ""
+    options: Optional[List[Any]] = []
+    correct_answer: Optional[str] = ""
+    marks: Optional[float] = 0.0
+    topic: Optional[str] = ""
+    difficulty: Optional[str] = "medium"
+    question_number: Optional[int] = 1
 
     class Config:
         from_attributes = True
@@ -72,10 +50,15 @@ class QuestionOut(BaseModel):
 
 class ExamOut(BaseModel):
     id: int
+    teacher_id: Optional[int] = None
     title: str
-    total_marks: float
-    created_at: datetime
-    questions: List[QuestionOut] = []
+    total_marks: Optional[float] = 0.0
+    num_mcq: Optional[int] = 0
+    num_fill_blanks: Optional[int] = 0
+    num_subjective: Optional[int] = 0
+    evaluation_strictness: Optional[str] = "medium"
+    created_at: Optional[datetime] = None
+    questions: Optional[List[QuestionOut]] = []
 
     class Config:
         from_attributes = True
@@ -84,17 +67,18 @@ class ExamOut(BaseModel):
 # Submission Schemas
 class SubmissionCreate(BaseModel):
     exam_id: int
-    answers: Dict[str, Any]  # {"1": "B", "2": "Operating System"}
+    answers: Dict[str, Any]
 
 
 class SubmissionOut(BaseModel):
     id: int
     exam_id: int
     student_id: int
-    total_score: float
-    status: str
-    evaluations: Dict[str, Any]
-    submitted_at: datetime
+    total_score: Optional[float] = 0.0
+    status: Optional[str] = "submitted"
+    answers: Optional[Dict[str, Any]] = {}
+    evaluations: Optional[Dict[str, Any]] = {}
+    submitted_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

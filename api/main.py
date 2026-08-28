@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.database import engine, Base
 from api.routers import auth, exams, submission
 
-# Create tables in PostgreSQL automatically
+# Create tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Student-Teacher Evaluation API", version="2.0.0")
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(exams.router)
 app.include_router(submission.router)
+
 
 @app.get("/")
 def root():
