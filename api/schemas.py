@@ -94,3 +94,28 @@ class SubmissionOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Task Tracking Schemas
+class TaskCreateResponse(BaseModel):
+    task_id: int
+    celery_task_id: Optional[str] = None
+    status: str = "QUEUED"
+    message: str = "Task queued"
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: int
+    celery_task_id: Optional[str] = None
+    task_type: str
+    status: str
+    progress: int
+    message: str
+    error: Optional[str] = None
+    result_metadata: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

@@ -87,3 +87,19 @@ class Submission(Base):
 
     exam = relationship("Exam", back_populates="submissions")
     student = relationship("Student", back_populates="submissions")
+
+
+class TaskJob(Base):
+    __tablename__ = "task_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    celery_task_id = Column(String(255), unique=True, index=True, nullable=True)
+    task_type = Column(String(100), nullable=False)  # 'pdf_processing', 'embedding_generation', 'full_pdf_pipeline'
+    status = Column(String(50), default="QUEUED", index=True)  # QUEUED, PROCESSING, COMPLETED, FAILED
+    progress = Column(Integer, default=0)  # 0 to 100
+    message = Column(String(255), default="Task queued")
+    error = Column(Text, nullable=True)
+    result_metadata = Column(JSON, default=dict)  # stores collection_name, chunk_count, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
