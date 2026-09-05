@@ -122,3 +122,15 @@ def get_exam(exam_id: int, db: Session = Depends(get_db)):
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
     return clean_exam_options(exam)
+
+
+@router.delete("/{exam_id}")
+def delete_exam(exam_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user["role"] != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can delete exams")
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    db.delete(exam)
+    db.commit()
+    return {"message": "Exam deleted successfully"}

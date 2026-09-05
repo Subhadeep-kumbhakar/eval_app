@@ -29,6 +29,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     role: str
     user_id: int
+    name: Optional[str] = ""
 
 
 # Safe Question & Exam Schemas
@@ -70,6 +71,16 @@ class SubmissionCreate(BaseModel):
     answers: Dict[str, Any]
 
 
+class StudentInfo(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    roll_number: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class SubmissionOut(BaseModel):
     id: int
     exam_id: int
@@ -79,6 +90,7 @@ class SubmissionOut(BaseModel):
     answers: Optional[Dict[str, Any]] = {}
     evaluations: Optional[Dict[str, Any]] = {}
     submitted_at: Optional[datetime] = None
+    student: Optional[StudentInfo] = None
 
     class Config:
         from_attributes = True
