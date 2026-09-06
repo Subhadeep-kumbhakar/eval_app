@@ -98,10 +98,12 @@ def generate_ai_exam_task(
         # 3. Generate questions using Gemini
         # ---------------------------------------------------------
         questions_data = generate_exam_from_text(
-            text=extracted_text,
+            context_text=extracted_text,
+            title=title,
             num_mcq=num_mcq,
-            num_fill_blanks=num_fill_blanks,
-            num_subjective=num_subjective,
+            num_fill=num_fill_blanks,
+            num_sub=num_subjective,
+            strictness=strictness,
         )
 
         if not questions_data:
@@ -130,8 +132,11 @@ def generate_ai_exam_task(
                 title=title,
                 teacher_id=teacher_id,
                 total_marks=total_marks,
+                num_mcq=num_mcq,
+                num_fill_blanks=num_fill_blanks,
+                num_subjective=num_subjective,
                 evaluation_strictness=strictness,
-                source_filename=source_filename,
+                collection_name=source_filename,
             )
 
             db.add(exam)
@@ -150,8 +155,8 @@ def generate_ai_exam_task(
                 question = Question(
                     exam_id=exam.id,
                     question_text=q.get(
-                        "question",
-                        q.get("question_text", "")
+                        "question_text",
+                        q.get("question", "")
                     ),
                     question_type=q.get(
                         "question_type",
@@ -162,10 +167,10 @@ def generate_ai_exam_task(
                         "correct_answer",
                         q.get("answer", "")
                     ),
-                    marks=q.get("marks", 1),
-                    topic=q.get("topic"),
-                    difficulty=q.get("difficulty"),
-                    order=idx,
+                    marks=float(q.get("marks", 1.0)),
+                    topic=q.get("topic", "General"),
+                    difficulty=q.get("difficulty", strictness),
+                    question_number=idx + 1,
                 )
 
                 db.add(question)

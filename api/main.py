@@ -6,7 +6,11 @@ from api.routers import auth, exams, submission, tasks
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Student-Teacher Evaluation API", version="2.0.0")
+app = FastAPI(
+    title="Student-Teacher Evaluation API",
+    version="2.0.0",
+    swagger_ui_parameters={"persistAuthorization": True},
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,4 +29,4 @@ app.include_router(tasks.router)
 
 @app.get("/")
 def root():
-    return {"status": "running", "message": "eval_app API is active"}
+    return {"status": "running", "message": "eval_app API is active and loaded"}

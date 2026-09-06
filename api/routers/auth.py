@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -238,6 +238,92 @@ def login(
         role=data.role,
         user_id=user.id,
         name=user.name,
+    )
+
+# ============================================================
+# SWAGGER / OAUTH2 TOKEN LOGIN
+# ============================================================
+
+@router.post("/token")
+def login_for_swagger(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    OAuth2-compatible login endpoint for Swagger UI.
+
+    Swagger sends:
+        username = email
+        password = password
+    """
+
+    email = username
+
+    # --------------------------------------------------------
+    # Try teacher
+    # --------------------------------------------------------
+
+    teacher = (
+        db.query(Teacher)
+        .filter(Teacher.email == email)
+        .first()
+    )
+
+    if teacher and verify_password(
+        password,
+        teacher.password_hash
+    ):
+        token = create_access_token(
+            {
+                "sub": str(teacher.id),
+                "role": "teacher",
+                "email": teacher.email,
+            }
+        )
+
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+        }
+
+    # --------------------------------------------------------
+    # Try student
+    # --------------------------------------------------------
+
+    student = (
+        db.query(Student)
+        .filter(Student.email == email)
+        .first()
+    )
+
+    if student and verify_password(
+        password,
+        student.password_hash
+    ):
+        token = create_access_token(
+            {
+                "sub": str(student.id),
+                "role": "student",
+                "email": student.email,
+            }
+        )
+
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+        }
+
+    # --------------------------------------------------------
+    # Invalid credentials
+    # --------------------------------------------------------
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid email or password",
+        headers={
+            "WWW-Authenticate": "Bearer"
+        },
     )
 
 
