@@ -1,30 +1,37 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from api.database import engine, Base
-from api.routers import auth, exams, submissions
+# Core Web & API
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+email-validator>=2.0.0
+python-multipart>=0.0.9
+python-jose>=3.3.0
+bcrypt>=4.1.0
 
-# Automatically create all PostgreSQL tables
-Base.metadata.create_all(bind=engine)
+# Database
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
 
-app = FastAPI(
-    title="Student-Teacher Evaluation Platform API",
-    version="2.0.0",
-    description="Scalable RAG Exam Generation & Evaluation System",
-)
+# Background Tasks & Caching
+celery>=5.3.0
+redis>=5.0.0
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# PDF & Document Processing
+pymupdf>=1.24.0
+pdfplumber>=0.10.0
 
-app.include_router(auth.router)
-app.include_router(exams.router)
-app.include_router(submissions.router)
+# LLM & RAG Pipeline
+google-genai>=0.1.0
+google-generativeai>=0.3.0
+sentence-transformers>=2.3.0
+chromadb>=0.4.22
+langchain>=0.1.0
+langchain-text-splitters>=0.0.1
+rapidfuzz>=3.6.0
+python-dotenv>=1.0.0
+numpy>=1.24.0
 
-
-@app.get("/")
-def health_check():
-    return {"status": "online", "system": "eval_app API"}
+# Testing
+pytest>=8.0.0
+httpx>=0.27.0
+fakeredis>=2.20.0

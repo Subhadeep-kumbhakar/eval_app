@@ -1,5 +1,6 @@
-import fitz  # PyMuPDF (100x faster than pdfplumber)
+import pymupdf as fitz
 import os
+
 
 
 def extract_text_from_pdf(pdf_path: str, max_pages: int = 100) -> str:

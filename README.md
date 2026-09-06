@@ -189,64 +189,166 @@ evaluation/
 
 ## Installation & Setup
 
+### 1. Prerequisites
+- **Python 3.10+** (tested on Python 3.10–3.14)
+- **Redis Server** (see options below)
+
+### 2. Install Dependencies
 ```bash
-# 1. Clone or navigate to the project
-cd evaluation
-
-# 2. Create virtual environment
-python -m venv venv
-source venv/bin/activate        # Linux/Mac
-venv\Scripts\activate           # Windows
-
-# 3. Install dependencies
 pip install -r requirements.txt
+```
 
-# 4. Set up environment variables
-# Create a .env file with:
-OPENAI_API_KEY=your_key_here    # if using OpenAI
-# OR
-GOOGLE_API_KEY=your_key_here    # if using Gemini
+### 3. Environment Configuration
+Create or update your `.env` file:
+```dotenv
+GEMINI_API_KEY=your_gemini_api_key_here
+REDIS_URL=redis://127.0.0.1:6379/0
+DATABASE_URL=sqlite:///eval_app_v2.db
+JWT_SECRET=super-secret-key-change-in-production-123456
+```
 
-# 5. Run the application
-streamlit run app.py
+### 4. Running Redis Locally
+
+#### Option A: Via WSL Ubuntu (Recommended on Windows)
+If using WSL on Windows:
+```bash
+wsl -u root service redis-server start
+```
+To verify Redis is reachable:
+```bash
+python -c "import redis; print('Redis reachable:', redis.Redis(host='127.0.0.1', port=6379).ping())"
+```
+
+#### Option B: Via Docker
+```bash
+docker run --name eval-redis -p 6379:6379 -d redis:7-alpine
+```
+
+#### Option C: Native Windows Standalone Executable
+Download standalone `redis-server.exe` from [Microsoft Archive Redis Releases](https://github.com/microsoftarchive/redis/releases/download/win-3.0.504/Redis-x64-3.0.504.zip) and run it in a terminal.
+
+---
+
+## Running the Application
+
+### 🚀 One-Click Auto Launcher (Windows)
+Double-click [start_app.bat](file:///c:/Users/kumbh/OneDrive/Desktop/coding/eval_app/start_app.bat) or run from terminal:
+```powershell
+.\start_app.bat
+```
+This automatically launches:
+1. **Terminal 1**: Redis Server (Port 6379)
+2. **Terminal 2**: Celery Worker (`--pool=solo`)
+3. **Terminal 3**: FastAPI Backend (Port 8000)
+4. **Terminal 4**: Vite React Frontend (Port 5173)
+And immediately opens both the Web App (`http://localhost:5173`) and API Documentation (`http://localhost:8000/docs`) in your default browser.
+
+---
+
+### Manual Setup: Running in 3 Terminals
+
+### Terminal 1: Start Redis
+```bash
+wsl -u root service redis-server start
+# or via docker: docker start eval-redis
+```
+
+### Terminal 2: Start Celery Background Worker
+> [!IMPORTANT]
+> **Windows Pool Configuration**: On Windows, Celery must run with `--pool=solo` to prevent process-fork errors.
+```powershell
+celery -A tasks.celery_app worker --loglevel=info --pool=solo
+```
+
+### Terminal 3: Start FastAPI Backend
+```powershell
+python -m uvicorn api.main:app --reload --port 8000
+```
+Interactive API docs are available at: `http://localhost:8000/docs`
+
+---
+
+## Background Tasks Architecture (Days 6–8)
+
+Heavy PDF processing and vector embedding generation are moved out of the synchronous HTTP request lifecycle into Celery background tasks:
+
+```
+Client (Teacher)
+       │
+       ▼
+FastAPI (POST /exams/process-pdf)
+       │ 1. Save file to storage/uploads/
+       │ 2. Create TaskJob in DB (QUEUED)
+       │ 3. Dispatch task to Celery
+       ▼
+Return {"task_id": 1, "status": "QUEUED"} (Immediate, <50ms)
+       │
+       ▼
+     Redis (Message Broker)
+       │
+       ▼
+ Celery Worker (--pool=solo)
+       │
+       ├─► 1. Mark TaskJob as PROCESSING (15%)
+       ├─► 2. Extract PDF text using PyMuPDF (40%)
+       ├─► 3. Chunk text using RecursiveCharacterTextSplitter (65%)
+       ├─► 4. Generate embeddings & store in ChromaDB (85%)
+       └─► 5. Mark TaskJob as COMPLETED (100%)
+       │
+       ▼
+Client polls GET /tasks/{task_id} -> {status: "COMPLETED", progress: 100}
+```
+
+### Background Task Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/exams/process-pdf` | Asynchronously upload PDF, extract text, chunk, and index into ChromaDB. Returns `task_id` immediately. |
+| `POST` | `/exams/extract-pdf` | Asynchronously extract text only from PDF document. Returns `task_id` immediately. |
+| `GET`  | `/tasks/{task_id}` | Poll background task status, progress (0–100%), and result metadata. |
+
+#### Example Task Status Response:
+```json
+{
+  "task_id": 1,
+  "celery_task_id": "8f8b0304-fa73-42e1-88f5-ef8540ab36c7",
+  "task_type": "full_pdf_pipeline",
+  "status": "COMPLETED",
+  "progress": 100,
+  "message": "Document processing and knowledge base creation completed successfully",
+  "error": null,
+  "result_metadata": {
+    "file_name": "syllabus.pdf",
+    "collection_name": "exam_4c3f58a9",
+    "character_count": 14500,
+    "chunk_count": 24,
+    "duration_seconds": 3.42
+  },
+  "created_at": "2026-09-05T12:00:00Z",
+  "started_at": "2026-09-05T12:00:01Z",
+  "completed_at": "2026-09-05T12:00:04Z"
+}
 ```
 
 ---
 
-## Key Dependencies
+## Running Automated Tests
 
+Run the full test suite (14 unit & integration tests):
+```bash
+pytest tests/ -v
 ```
-streamlit
-langchain
-langchain-community
-langchain-openai          # or langchain-google-genai
-chromadb
-sentence-transformers
-pdfplumber
-rapidfuzz
-streamlit-authenticator
-python-dotenv
-sqlite3                   # built-in
-```
+Tests cover:
+- Celery configuration & registered tasks
+- Task creation and immediate queueing
+- PDF extraction task on test material
+- SentenceTransformer & ChromaDB embedding task
+- Task status endpoint polling
+- Failed task handling & safe error logging
+- Corrupted/invalid PDF handling
+- Missing file error handling
+- Database session rollback & worker safety
 
----
-
-## API Endpoints (Logical Flow)
-
-Since this is a Streamlit app, there are no REST endpoints. Instead, the logical flows are:
-
-| Flow                  | Page                    | Action                                      |
-|-----------------------|-------------------------|----------------------------------------------|
-| Teacher Registration  | `app.py`                | Register with credentials                    |
-| Teacher Login         | `app.py`                | Authenticate and redirect to dashboard       |
-| Upload PDFs           | `Create_Exam.py`        | Upload, parse, chunk, embed, store           |
-| Configure Exam        | `Create_Exam.py`        | Set marks, topics, question distribution     |
-| Generate Paper        | `Generate_Paper.py`     | RAG retrieval + LLM generation               |
-| Student Registration  | `app.py`                | Register with roll number                    |
-| Student Login         | `app.py`                | Authenticate and redirect to dashboard       |
-| Submit Answers        | `Take_Exam.py`          | Type or upload answers                       |
-| Evaluate              | `Teacher_Dashboard.py`  | Select strictness, trigger evaluation        |
-| View Results          | `Results.py`            | See marks, feedback, export                  |
 
 ---
 
