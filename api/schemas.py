@@ -212,4 +212,63 @@ class ClassWithStudents(ClassOut):
 
 
 class ClassWithExams(ClassOut):
-    exams: List[ExamOut] = []
+    exams: List[ExamOut] = []
+
+
+# ============================================================
+# Natural-Language Exam Blueprint Schemas (Phase 1)
+# ============================================================
+
+class QuestionRequirement(BaseModel):
+    topic: str
+    count: Optional[int] = None
+    question_type: Optional[str] = None  # archetype: construction, conversion, MCQ, design, proof, etc.
+    difficulty: Optional[str] = "medium"  # easy, medium, hard, mixed
+    marks: Optional[float] = None
+    unit: Optional[str] = None
+    bloom_level: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class GlobalRequirements(BaseModel):
+    difficulty: Optional[str] = "medium"
+    university_style: bool = False
+    application_based: bool = False
+    avoid_direct_definitions: bool = False
+    avoid_simple_questions: bool = False
+    problem_solving: bool = False
+    conceptual: bool = False
+    numerical_heavy: bool = False
+    theory_heavy: bool = False
+    unit_notes: Dict[str, str] = {}
+    other_instructions: List[str] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ExamBlueprint(BaseModel):
+    subject: Optional[str] = None
+    total_marks: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    global_requirements: GlobalRequirements = GlobalRequirements()
+    question_requirements: List[QuestionRequirement] = []
+    raw_requirements: Optional[str] = ""
+
+    class Config:
+        from_attributes = True
+
+
+class ParseRequirementsRequest(BaseModel):
+    subject: Optional[str] = None
+    total_marks: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    requirements: str
+
+
+class ParseRequirementsResponse(BaseModel):
+    blueprint: ExamBlueprint
+    clarifications: List[str] = []
+

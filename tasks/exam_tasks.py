@@ -38,6 +38,7 @@ def generate_ai_exam_task(
     strictness: str,
     file_path: str,
     source_filename: str,
+    blueprint: dict = None,
 ) -> dict:
 
     celery_task_id = self.request.id
@@ -104,6 +105,7 @@ def generate_ai_exam_task(
             num_fill=num_fill_blanks,
             num_sub=num_subjective,
             strictness=strictness,
+            blueprint=blueprint,
         )
 
         if not questions_data:
@@ -137,6 +139,8 @@ def generate_ai_exam_task(
                 num_subjective=num_subjective,
                 evaluation_strictness=strictness,
                 collection_name=source_filename,
+                blueprint=blueprint or {},
+                requirements_text=(blueprint.get("raw_requirements", "") if isinstance(blueprint, dict) else ""),
             )
 
             db.add(exam)

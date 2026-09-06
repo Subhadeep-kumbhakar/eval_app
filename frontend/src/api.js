@@ -9,7 +9,9 @@ import axios from 'axios';
  * Catches 401 Unauthorized errors to handle expired tokens.
  */
 const rawApiUrl = import.meta.env.VITE_API_URL;
-const API_BASE_URL = (rawApiUrl !== undefined && rawApiUrl !== null) ? rawApiUrl : 'http://localhost:8000';
+const API_BASE_URL = (rawApiUrl !== undefined && rawApiUrl !== null && rawApiUrl !== '')
+  ? rawApiUrl
+  : (typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '');
 
 const http = axios.create({
   baseURL: API_BASE_URL,

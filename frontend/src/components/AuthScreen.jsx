@@ -38,7 +38,7 @@ export default function AuthScreen({ setToken, setRole }) {
         setForm((prev) => ({ ...prev, password: '' }));
       }
     } catch (err) {
-      const msg = err.response?.data?.detail || (err.message === 'Network Error' ? 'Cannot connect to backend at http://localhost:8000' : 'Authentication failed');
+      const msg = err.response?.data?.detail || (err.message === 'Network Error' ? 'Cannot connect to backend server. Please check connection.' : 'Authentication failed');
       setError(msg);
     } finally {
       setLoading(false);

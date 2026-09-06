@@ -53,7 +53,7 @@ export default function ClassManagement({ role, exams = [], onStartExam, onViewE
     } finally {
       setLoading(false);
     }
-  }, [isTeacher, toast]);
+  }, [isTeacher]);
 
   useEffect(() => {
     fetchClasses();
@@ -90,7 +90,7 @@ export default function ClassManagement({ role, exams = [], onStartExam, onViewE
     } finally {
       setLoadingStudents(false);
     }
-  }, [toast]);
+  }, []);
 
   // Fetch exams assigned to selected class (works for both Teacher and Student)
   const fetchClassExams = useCallback(async (classId) => {
@@ -105,7 +105,7 @@ export default function ClassManagement({ role, exams = [], onStartExam, onViewE
     } finally {
       setLoadingClassExams(false);
     }
-  }, [toast]);
+  }, []);
 
   // Open class detail view
   const handleOpenClass = (cls) => {

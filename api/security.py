@@ -51,10 +51,40 @@ def get_current_user(
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
+        raw_sub = payload.get("sub")
         role: str = payload.get("role")
-        if user_id is None or role is None:
+        email: Optional[str] = payload.get("email")
+        if raw_sub is None or role is None:
             raise credentials_exception
-        return {"id": int(user_id), "role": role, "email": payload.get("email")}
+
+        user_id = None
+        if isinstance(raw_sub, int) or (isinstance(raw_sub, str) and raw_sub.isdigit()):
+            user_id = int(raw_sub)
+        elif payload.get("id") is not None:
+            try:
+                user_id = int(payload.get("id"))
+            except (ValueError, TypeError):
+                pass
+
+        if user_id is None and ("@" in str(raw_sub) or email):
+            from api.database import SessionLocal
+            from api.models import Teacher, Student
+            user_email = email or str(raw_sub)
+            db_session = SessionLocal()
+            try:
+                if role == "teacher":
+                    u = db_session.query(Teacher).filter(Teacher.email == user_email).first()
+                else:
+                    u = db_session.query(Student).filter(Student.email == user_email).first()
+                if u:
+                    user_id = u.id
+                    email = u.email
+            finally:
+                db_session.close()
+
+        if user_id is None:
+            raise credentials_exception
+
+        return {"id": user_id, "role": role, "email": email or str(raw_sub)}
     except (JWTError, ValueError):
         raise credentials_exception

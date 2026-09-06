@@ -96,6 +96,8 @@ class Exam(Base):
     topic_weightage = Column(JSON, default=dict)
     evaluation_strictness = Column(String(50), default="medium")  # easy, medium, hard
     collection_name = Column(String(255), default="")
+    blueprint = Column(JSON, default=dict, nullable=True)
+    requirements_text = Column(Text, default="", nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     teacher = relationship("Teacher", back_populates="exams")

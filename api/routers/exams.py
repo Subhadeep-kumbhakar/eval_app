@@ -7,10 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from api.database import get_db
 from api.models import Exam, Question, TaskJob, ClassRoom, Enrollment, ExamAssignment
-from api.schemas import ExamOut, TaskCreateResponse, ExamAssignmentCreate, ExamAssignmentOut
+from api.schemas import (
+    ExamOut, TaskCreateResponse, ExamAssignmentCreate, ExamAssignmentOut,
+    ParseRequirementsRequest, ParseRequirementsResponse,
+)
 from api.security import get_current_user
 from pdf_processing.extractor import extract_text_from_pdf
 from generation.gemini_generator import generate_exam_from_text
+from generation.requirement_parser import parse_exam_requirements
 from storage.local import default_storage
 from tasks.pdf_tasks import extract_pdf_task
 from tasks.embedding_tasks import process_pdf_and_embed_pipeline_task
@@ -151,6 +155,38 @@ async def extract_pdf_async(
     )
 
 
+# ============================================================
+# NATURAL LANGUAGE EXAM REQUIREMENTS (PHASE 1)
+# ============================================================
+
+@router.post("/requirements/parse", response_model=ParseRequirementsResponse, status_code=status.HTTP_200_OK)
+def parse_requirements_endpoint(
+    data: ParseRequirementsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Parses natural-language exam requirements into a structured Exam Blueprint.
+    Only accessible to authenticated teachers.
+    """
+    if current_user.get("role") != "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers can parse exam requirements",
+        )
+
+    if not data.requirements or not data.requirements.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requirements text cannot be empty",
+        )
+
+    return parse_exam_requirements(
+        requirements=data.requirements,
+        subject=data.subject,
+        total_marks=data.total_marks,
+        duration_minutes=data.duration_minutes,
+    )
+
+
 @router.post("/generate-ai", response_model=TaskCreateResponse, status_code=status.HTTP_202_ACCEPTED)
 async def generate_ai_exam(
     title: str = Form("AI Generated Exam"),
@@ -159,12 +195,14 @@ async def generate_ai_exam(
     num_fill_blanks: int = Form(2),
     num_subjective: int = Form(2),
     strictness: str = Form("medium"),
+    blueprint: Optional[str] = Form(None),
     pdf_file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Asynchronous AI exam generation endpoint.
     Saves PDF, creates a TaskJob, and dispatches Celery generate_ai_exam_task.
+    Supports structured blueprint from natural-language parsing if provided.
     Returns 202 with task_id immediately.
     """
     if current_user["role"] != "teacher":
@@ -180,12 +218,31 @@ async def generate_ai_exam(
 
     stored_file_path = default_storage.save_file(file_bytes, filename)
 
+    parsed_blueprint = None
+    if blueprint:
+        try:
+            parsed_blueprint = json.loads(blueprint) if isinstance(blueprint, str) else blueprint
+        except Exception as parse_err:
+            logger.warning("Could not deserialize blueprint JSON: %s", parse_err)
+            parsed_blueprint = None
+
+    metadata = {
+        "original_filename": filename,
+        "title": title,
+    }
+    if parsed_blueprint:
+        metadata["has_blueprint"] = True
+        metadata["blueprint_summary"] = {
+            "questions": len(parsed_blueprint.get("question_requirements", [])),
+            "difficulty": parsed_blueprint.get("global_requirements", {}).get("difficulty", strictness),
+        }
+
     job = TaskJob(
         task_type="ai_exam_generation",
         status="QUEUED",
         progress=0,
         message="AI exam generation task queued",
-        result_metadata={"original_filename": filename, "title": title},
+        result_metadata=metadata,
     )
     db.add(job)
     db.commit()
@@ -203,6 +260,7 @@ async def generate_ai_exam(
             strictness=strictness,
             file_path=stored_file_path,
             source_filename=filename,
+            blueprint=parsed_blueprint,
         )
         job.celery_task_id = async_task.id
         db.commit()
