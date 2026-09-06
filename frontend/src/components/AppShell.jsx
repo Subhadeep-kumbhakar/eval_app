@@ -6,8 +6,7 @@ import {
   Menu, PanelLeft, PanelLeftOpen, ClipboardCheck, Target, Moon, Compass, 
 } from 'lucide-react';
 import { cn } from './cn';
-import { Avatar } from './ui';
-import { useToast } from '../App';
+import { Avatar, useToast } from './ui';
 import TeacherDashboard from './TeacherDashboard';
 import StudentDashboard from './StudentDashboard';
 import CreateExam from './CreateExam';
@@ -182,7 +181,15 @@ export function AppShell({ token, setToken, role, setRole }) {
       );
     }
     if (view === 'create-exam') {
-      return <CreateExam onGenerated={() => { fetchExams(); go('exams'); }} />;
+      return (
+        <CreateExam 
+          onRefreshExams={fetchExams}
+          onGenerated={() => { 
+            fetchExams(); 
+            go('exams'); 
+          }} 
+        />
+      );
     }
     if (view === 'exams' || view === 'my-exams') {
       return <ExamsGrid exams={exams} role={role} loading={loading} onView={openExam} onStart={setTakingExam} onCreate={() => go('create-exam')} />;

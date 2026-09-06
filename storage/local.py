@@ -11,8 +11,12 @@ class LocalFileStorage:
 
     def __init__(self, base_dir: Union[str, Path] = None):
         if base_dir is None:
-            # Default to project_root / uploads
-            base_dir = Path(__file__).resolve().parent.parent / "uploads"
+            env_dir = os.getenv("STORAGE_DIR")
+            if env_dir:
+                base_dir = Path(env_dir)
+            else:
+                # Default to project_root / uploads
+                base_dir = Path(__file__).resolve().parent.parent / "uploads"
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 

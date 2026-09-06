@@ -233,6 +233,8 @@ def evaluate_subjective(
                 "using structured, conceptual rubrics rather than surface-level textual matching."
             )
 
+            context_section = f"RELEVANT COURSE MATERIAL CONTEXT:\n{extra_context}" if extra_context else ""
+
             prompt = f"""
 QUESTION:
 {question_text}
@@ -240,7 +242,7 @@ QUESTION:
 REFERENCE / MODEL ANSWER:
 {cleaned_reference}
 
-{"RELEVANT COURSE MATERIAL CONTEXT:\n" + extra_context if extra_context else ""}
+{context_section}
 
 STUDENT'S SUBMITTED ANSWER:
 {cleaned_student}

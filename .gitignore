@@ -1,11 +1,13 @@
 .env
-.env.local
+.env.*
+!.env.example
 __pycache__/
 *.pyc
 venv/
 .venv/
 chroma_db/
 database/evaluation.db
+*.db
 evaluation.tar
 
 # Frontend dependencies and builds

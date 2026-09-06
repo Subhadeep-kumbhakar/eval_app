@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, FileText, Check, X, ChevronLeft, ChevronRight, 
   Sparkles, Layers, Database, FileUp, FileSearch, Grid3x3, 
@@ -9,15 +9,46 @@ import { Button, Card, Badge, TypeBadge, useToast } from './ui';
 
 const STEPS = ['Study Material', 'Paper Blueprint', 'AI Generation & Preview'];
 
-export default function CreateExam({ onGenerated }) {
+export default function CreateExam({ onGenerated, onRefreshExams }) {
   const toast = useToast();
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [taskProgress, setTaskProgress] = useState(0);
+  const [taskStatus, setTaskStatus] = useState('');
+  const [taskMessage, setTaskMessage] = useState('');
   const [createdExam, setCreatedExam] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [editingIdx, setEditingIdx] = useState(null);
+
+  const isGeneratingRef = useRef(false);
+  const pollTimerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  // Stop polling helper that resets timers and guards
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    isGeneratingRef.current = false;
+    if (isMountedRef.current) {
+      setGenerating(false);
+    }
+  };
+
+  // Cleanup polling when component unmounts
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const [config, setConfig] = useState({
     title: 'Computer Science Midterm Examination',
@@ -53,14 +84,106 @@ export default function CreateExam({ onGenerated }) {
     }
   };
 
+  // Poll GET /tasks/{task_id} every 2.5 seconds until COMPLETED or FAILED
+  const pollTask = async (taskId) => {
+    if (!isMountedRef.current) return;
+
+    try {
+      const res = await API.get(`/tasks/${taskId}`);
+      const data = res.data;
+
+      if (!isMountedRef.current) return;
+
+      const rawStatus = (data?.status || '').toUpperCase();
+      const progress = typeof data?.progress === 'number' ? data.progress : 0;
+      const message = data?.message || '';
+
+      setTaskStatus(rawStatus || 'PROCESSING');
+      setTaskProgress(progress);
+      if (message) {
+        setTaskMessage(message);
+      }
+
+      // 1. Task Completed Successfully
+      if (rawStatus === 'COMPLETED') {
+        stopPolling();
+        toast.push('Paper Generated Successfully! ✨', 'success');
+
+        // Refresh exam list after successful completion
+        if (onRefreshExams) {
+          try {
+            onRefreshExams();
+          } catch (e) {
+            console.error('Error refreshing exams list:', e);
+          }
+        }
+
+        // Fetch the generated exam and its questions from backend
+        const examId = data?.result_metadata?.exam_id;
+        if (examId) {
+          try {
+            const examRes = await API.get(`/exams/${examId}`);
+            if (isMountedRef.current) {
+              setCreatedExam(examRes.data);
+              setQuestions(examRes.data.questions || []);
+              setStep(2);
+            }
+            return;
+          } catch (fetchErr) {
+            console.error('Failed to fetch full generated exam details:', fetchErr);
+          }
+        }
+
+        if (isMountedRef.current) {
+          setCreatedExam(data?.result_metadata || null);
+          setQuestions([]);
+          setStep(2);
+        }
+        return;
+      }
+
+      // 2. Task Failed
+      if (rawStatus === 'FAILED') {
+        stopPolling();
+        const errMsg = data?.error || data?.message || 'AI Paper generation failed. Please try again.';
+        toast.push(errMsg, 'error');
+        return;
+      }
+
+      // 3. Task Still PENDING / QUEUED / PROCESSING -> Poll again after 2.5s (no fixed timeout)
+      pollTimerRef.current = setTimeout(() => {
+        pollTask(taskId);
+      }, 2500);
+
+    } catch (err) {
+      console.warn('Transient error polling exam task:', err);
+      // On network error, retry polling after 3 seconds as long as still generating and mounted
+      if (isMountedRef.current && isGeneratingRef.current) {
+        pollTimerRef.current = setTimeout(() => {
+          pollTask(taskId);
+        }, 3000);
+      }
+    }
+  };
+
   const handleGenerate = async () => {
+    // Prevent duplicate clicks & redundant Celery jobs
+    if (generating || isGeneratingRef.current) {
+      return;
+    }
+
     if (!file) {
       toast.push('Please upload a course material PDF before generating', 'error');
       setStep(0);
       return;
     }
 
+    isGeneratingRef.current = true;
     setGenerating(true);
+    setTaskProgress(5);
+    setTaskStatus('PENDING');
+    setTaskMessage('Uploading course material and dispatching AI synthesis task…');
+
     try {
       const formData = new FormData();
       formData.append('title', config.title);
@@ -71,19 +194,28 @@ export default function CreateExam({ onGenerated }) {
       formData.append('strictness', config.difficulty);
       formData.append('pdf_file', file);
 
+      // POST /exams/generate-ai returns 202 with task_id
       const res = await API.post('/exams/generate-ai', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      setCreatedExam(res.data);
-      setQuestions(res.data.questions || []);
-      setStep(2);
-      toast.push('AI examination synthesized successfully! ✨', 'success');
+      const taskId = res.data?.task_id || res.data?.id || res.data?.celery_task_id;
+      if (!taskId) {
+        throw new Error(res.data?.detail || 'No task ID returned by server.');
+      }
+
+      setTaskMessage(res.data?.message || 'Task queued. Synthesizing questions with AI…');
+      setTaskProgress(res.data?.progress || 10);
+
+      // Start polling every 2-3 seconds
+      pollTimerRef.current = setTimeout(() => {
+        pollTask(taskId);
+      }, 2000);
+
     } catch (err) {
-      const msg = err.response?.data?.detail || 'AI Generation failed. Please check your PDF and try again.';
+      stopPolling();
+      const msg = err.response?.data?.detail || err.message || 'AI Generation failed to start. Please check your PDF and try again.';
       toast.push(msg, 'error');
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -126,11 +258,15 @@ export default function CreateExam({ onGenerated }) {
             <button
               key={label}
               onClick={() => {
-                if (done) setStep(i);
+                if (!generating && done) setStep(i);
               }}
-              disabled={!done && !active}
-              className={`flex items-center gap-2 text-xs font-medium transition-colors cursor-pointer ${
-                active ? 'text-[#16382C] font-semibold' : done ? 'text-[#616B66] hover:text-[#1C2421]' : 'text-[#969E99] cursor-not-allowed'
+              disabled={generating || (!done && !active)}
+              className={`flex items-center gap-2 text-xs font-medium transition-colors ${
+                active 
+                  ? 'text-[#16382C] font-semibold' 
+                  : done && !generating 
+                  ? 'text-[#616B66] hover:text-[#1C2421] cursor-pointer' 
+                  : 'text-[#969E99] cursor-not-allowed'
               }`}
             >
               <span
@@ -333,27 +469,53 @@ export default function CreateExam({ onGenerated }) {
             </div>
           </div>
 
+          {/* Live AI Progress Card */}
+          {generating && (
+            <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#E7E4DC] space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-[#16382C] font-semibold">
+                  <Loader2 size={14} className="animate-spin text-[#E05D38]" />
+                  <span>Generating Paper…</span>
+                </div>
+                <span className="font-mono text-xs text-[#616B66] font-medium">{taskProgress}%</span>
+              </div>
+              <div className="w-full bg-[#E7E4DC] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-[#E05D38] h-full rounded-full transition-all duration-500 ease-out" 
+                  style={{ width: `${Math.max(5, taskProgress)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-[#616B66]">
+                <span>{taskMessage || 'Synthesizing examination questions with AI…'}</span>
+                <span className="text-[#969E99] italic">Celery task active</span>
+              </div>
+            </div>
+          )}
+
           <div className="pt-4 border-t border-[#F5F2EA] flex items-center justify-between">
             <button
-              onClick={() => setStep(0)}
-              className="text-xs font-medium text-[#616B66] hover:text-[#1C2421] cursor-pointer"
+              onClick={() => {
+                if (!generating) setStep(0);
+              }}
+              disabled={generating}
+              className="text-xs font-medium text-[#616B66] hover:text-[#1C2421] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ← Back to Material
             </button>
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="bg-[#E05D38] hover:bg-[#C94B27] text-white px-7 py-3 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer transition-colors shadow-sm disabled:opacity-50"
+              className="bg-[#E05D38] hover:bg-[#C94B27] text-white px-7 py-3 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  <span>Synthesizing Exam with AI…</span>
+                  <span>Generating Paper…</span>
                 </>
               ) : (
                 <>
                   <Sparkles size={16} />
-                  <span>Synthesize Exam with AI</span>
+                  <span>Generate Paper</span>
                 </>
               )}
             </button>
@@ -364,6 +526,29 @@ export default function CreateExam({ onGenerated }) {
       {/* STEP 2: Review & Publish Exam */}
       {step === 2 && (
         <div className="bg-white border border-[#E7E4DC] rounded-3xl p-8 sm:p-10 space-y-6 shadow-sm">
+          {/* Live Progress Card in Review step if regenerating */}
+          {generating && (
+            <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#E7E4DC] space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-[#16382C] font-semibold">
+                  <Loader2 size={14} className="animate-spin text-[#E05D38]" />
+                  <span>Generating Paper…</span>
+                </div>
+                <span className="font-mono text-xs text-[#616B66] font-medium">{taskProgress}%</span>
+              </div>
+              <div className="w-full bg-[#E7E4DC] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-[#E05D38] h-full rounded-full transition-all duration-500 ease-out" 
+                  style={{ width: `${Math.max(5, taskProgress)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-[#616B66]">
+                <span>{taskMessage || 'Synthesizing examination questions with AI…'}</span>
+                <span className="text-[#969E99] italic">Celery task active</span>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#F5F2EA] pb-6">
             <div>
               <Badge tone="sage">{questions.length} Items Synthesized</Badge>
@@ -378,14 +563,24 @@ export default function CreateExam({ onGenerated }) {
               <button
                 onClick={handleGenerate}
                 disabled={generating}
-                className="px-4 py-2.5 rounded-xl border border-[#E7E4DC] text-xs font-semibold text-[#16382C] hover:bg-[#FAF8F5] flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl border border-[#E7E4DC] text-xs font-semibold text-[#16382C] hover:bg-[#FAF8F5] flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RefreshCw size={13} />
-                <span>Regenerate</span>
+                {generating ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Generating Paper…</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={13} />
+                    <span>Regenerate Paper</span>
+                  </>
+                )}
               </button>
               <button
                 onClick={handlePublish}
-                className="bg-[#16382C] hover:bg-[#112E24] text-white px-5 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+                disabled={generating}
+                className="bg-[#16382C] hover:bg-[#112E24] text-white px-5 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
                 <span>Publish Exam</span>
@@ -447,14 +642,18 @@ export default function CreateExam({ onGenerated }) {
 
           <div className="pt-6 border-t border-[#F5F2EA] flex items-center justify-between">
             <button
-              onClick={() => setStep(1)}
-              className="text-xs font-medium text-[#616B66] hover:text-[#1C2421] cursor-pointer"
+              onClick={() => {
+                if (!generating) setStep(1);
+              }}
+              disabled={generating}
+              className="text-xs font-medium text-[#616B66] hover:text-[#1C2421] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ← Back to Blueprint
             </button>
             <button
               onClick={handlePublish}
-              className="bg-[#16382C] hover:bg-[#112E24] text-white px-7 py-3 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+              disabled={generating}
+              className="bg-[#16382C] hover:bg-[#112E24] text-white px-7 py-3 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check size={16} />
               <span>Publish & Finish</span>

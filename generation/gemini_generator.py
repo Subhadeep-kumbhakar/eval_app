@@ -22,7 +22,7 @@ def generate_exam_from_text(
     """Uses Gemini 3.6 Flash (Free) to synthesize structured exam questions from PDF text."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("❌ Error: GEMINI_API_KEY is missing from .env")
+        print("[-] Error: GEMINI_API_KEY is missing from .env")
         return []
 
     try:
@@ -75,7 +75,7 @@ def generate_exam_from_text(
         ]
         """
 
-        print("🤖 Requesting Gemini 3.6 Flash...")
+        print("[*] Requesting Gemini 3.6 Flash...")
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt,
@@ -91,9 +91,9 @@ def generate_exam_from_text(
         text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
 
         questions = json.loads(text)
-        print(f"🎉 Generated {len(questions)} real AI questions via Gemini 3.6 Flash!")
+        print(f"[+] Generated {len(questions)} real AI questions via Gemini 3.6 Flash!")
         return questions
 
     except Exception as e:
-        print(f"❌ Gemini Generation Error: {e}")
+        print(f"[-] Gemini Generation Error: {e}")
         return []
