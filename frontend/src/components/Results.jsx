@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Sparkles, ClipboardCheck, AlertCircle, CheckCircle, XCircle, Clock, User, Award } from 'lucide-react';
+import { Download, Sparkles, ClipboardCheck, AlertCircle, CheckCircle, XCircle, Clock, User, Award, Check, AlertTriangle, Lightbulb } from 'lucide-react';
 import { Card, Badge, Button, TypeBadge, EmptyState, SectionTitle } from './ui';
 import { Donut } from './charts';
 
@@ -217,16 +217,13 @@ function ResultDetail({ sub, exam, role }) {
                     </div>
                   </div>
 
-                  {/* AI Feedback */}
-                  <div className="p-3.5 rounded-xl bg-[#E8EFE9]/60 border border-emerald-200 text-xs space-y-1">
-                    <div className="flex items-center gap-1.5 text-[#16382C] font-semibold">
-                      <Sparkles size={14} />
-                      <span>AI Semantic Evaluation Feedback</span>
-                    </div>
-                    <p className="text-[#16382C] leading-relaxed">
-                      {ev.feedback || (isFull ? 'Correct response matching model answer key.' : 'Evaluation completed.')}
-                    </p>
-                  </div>
+                  {/* Structured Evaluation Card */}
+                  <RubricEvaluationCard 
+                    ev={ev} 
+                    maxMarks={maxMarks} 
+                    isFull={isFull} 
+                    isPartial={isPartial} 
+                  />
                 </div>
               );
             })
@@ -246,6 +243,163 @@ function ScoreTile({ label, value, tone }) {
       <div className="text-[10px] uppercase tracking-wider text-[#969E99] mt-0.5 font-sans">
         {label}
       </div>
+    </div>
+  );
+}
+
+function formatScore(num) {
+  if (num == null) return '0';
+  const val = Number(num);
+  return Number.isInteger(val) ? val.toString() : val.toFixed(1);
+}
+
+function cleanLegacyFeedback(text) {
+  if (!text) return '';
+  // Format raw unrounded float percentages e.g. 54.573170731707314% -> 54.6%
+  return text.replace(/(\d+\.\d{2,})%/g, (match, p1) => `${parseFloat(p1).toFixed(1)}%`);
+}
+
+function RubricEvaluationCard({ ev, maxMarks, isFull, isPartial }) {
+  const hasRubric = (ev.criteria && ev.criteria.length > 0) || ev.overall_assessment || (ev.strengths && ev.strengths.length > 0);
+  const score = ev.score != null ? ev.score : (ev.marks_awarded != null ? ev.marks_awarded : 0);
+  const max = ev.max_score || maxMarks || 5;
+  const pct = ev.percentage != null ? ev.percentage : (max > 0 ? Math.round((score / max) * 100) : 0);
+  const assessment = ev.overall_assessment || (isFull ? 'Fully Correct' : (isPartial ? 'Partially Correct' : 'Incorrect'));
+  const method = ev.evaluation_method || 'ai_rubric';
+
+  return (
+    <div className="p-4 rounded-2xl bg-[#E8EFE9]/50 border border-emerald-200/80 text-xs space-y-3.5">
+      {/* Header with Assessment, Method, and Score */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200/60 pb-2.5">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 font-bold text-[#16382C]">
+            <Sparkles size={15} className="text-[#16382C]" />
+            <span className="font-serif text-sm">{assessment}</span>
+          </div>
+          <Badge tone={isFull ? 'sage' : isPartial ? 'warning' : 'danger'}>
+            {formatScore(score)} / {formatScore(max)} pts ({pct}%)
+          </Badge>
+        </div>
+        <Badge tone="neutral" className="text-[10px] uppercase font-mono">
+          {method === 'ai_rubric' ? '✦ AI Rubric' : method === 'semantic_fallback' ? '⚡ Semantic Fallback' : 'Rule-Based'}
+        </Badge>
+      </div>
+
+      {/* Criteria Checklist */}
+      {ev.criteria && ev.criteria.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[11px] uppercase tracking-wider text-[#616B66] font-bold">
+            Rubric Criteria Breakdown
+          </div>
+          <div className="grid grid-cols-1 gap-1.5">
+            {ev.criteria.map((c, i) => {
+              const status = (c.status || 'satisfied').toLowerCase();
+              const isSat = status === 'satisfied';
+              const isPart = status === 'partially_satisfied';
+              const isWrong = status === 'incorrect';
+
+              return (
+                <div 
+                  key={i} 
+                  className={`p-2 rounded-xl flex items-start gap-2 border transition-all ${
+                    isSat 
+                      ? 'bg-emerald-50/70 border-emerald-200/70 text-emerald-950'
+                      : isPart 
+                        ? 'bg-amber-50/70 border-amber-200/70 text-amber-950'
+                        : isWrong
+                          ? 'bg-rose-50/70 border-rose-200/70 text-rose-950'
+                          : 'bg-[#FAF8F5] border-[#E7E4DC] text-[#616B66]'
+                  }`}
+                >
+                  <span className="shrink-0 mt-0.5">
+                    {isSat ? (
+                      <CheckCircle size={14} className="text-emerald-700" />
+                    ) : isPart ? (
+                      <AlertTriangle size={14} className="text-amber-700" />
+                    ) : isWrong ? (
+                      <XCircle size={14} className="text-rose-700" />
+                    ) : (
+                      <AlertCircle size={14} className="text-[#969E99]" />
+                    )}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-semibold text-xs text-[#1C2421]">
+                        {c.criterion}
+                      </span>
+                      {c.max_score != null && (
+                        <span className="font-mono text-[10px] font-bold text-[#16382C] shrink-0">
+                          {formatScore(c.score)} / {formatScore(c.max_score)}
+                        </span>
+                      )}
+                    </div>
+                    {c.feedback && (
+                      <p className="text-[11px] text-[#616B66] mt-0.5 leading-snug">
+                        {c.feedback}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Strengths & Missing Points */}
+      {(ev.strengths?.length > 0 || ev.missing_points?.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+          {ev.strengths && ev.strengths.length > 0 && (
+            <div className="p-2.5 rounded-xl bg-white border border-emerald-200/70 text-xs space-y-1">
+              <div className="flex items-center gap-1 font-semibold text-emerald-800 text-[11px] uppercase tracking-wide">
+                <Check size={13} />
+                <span>What you got right</span>
+              </div>
+              <ul className="space-y-1 pl-4 list-disc text-emerald-950/90 text-[11px]">
+                {ev.strengths.map((s, idx) => (
+                  <li key={idx} className="leading-snug">{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {ev.missing_points && ev.missing_points.length > 0 && (
+            <div className="p-2.5 rounded-xl bg-white border border-amber-200/70 text-xs space-y-1">
+              <div className="flex items-center gap-1 font-semibold text-amber-800 text-[11px] uppercase tracking-wide">
+                <AlertTriangle size={13} />
+                <span>Missing / Needs Work</span>
+              </div>
+              <ul className="space-y-1 pl-4 list-disc text-amber-950/90 text-[11px]">
+                {ev.missing_points.map((m, idx) => (
+                  <li key={idx} className="leading-snug">{m}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actionable Improvement Suggestion */}
+      {ev.improvement_suggestion && (
+        <div className="p-2.5 rounded-xl bg-[#FAF8F5] border border-[#E7E4DC] text-xs flex items-start gap-2">
+          <Lightbulb size={14} className="text-[#E05D38] shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-[#1C2421] text-[11px] uppercase tracking-wide block">
+              How to Improve
+            </span>
+            <p className="text-[#616B66] text-[11px] leading-relaxed mt-0.5">
+              {ev.improvement_suggestion}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Legacy feedback fallback if no criteria or extra text */}
+      {!hasRubric && ev.feedback && (
+        <p className="text-[#16382C] leading-relaxed text-xs">
+          {cleanLegacyFeedback(ev.feedback)}
+        </p>
+      )}
     </div>
   );
 }

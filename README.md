@@ -229,7 +229,23 @@ Download standalone `redis-server.exe` from [Microsoft Archive Redis Releases](h
 
 ---
 
-## Running the Application (3 Terminals)
+## Running the Application
+
+### 🚀 One-Click Auto Launcher (Windows)
+Double-click [start_app.bat](file:///c:/Users/kumbh/OneDrive/Desktop/coding/eval_app/start_app.bat) or run from terminal:
+```powershell
+.\start_app.bat
+```
+This automatically launches:
+1. **Terminal 1**: Redis Server (Port 6379)
+2. **Terminal 2**: Celery Worker (`--pool=solo`)
+3. **Terminal 3**: FastAPI Backend (Port 8000)
+4. **Terminal 4**: Vite React Frontend (Port 5173)
+And immediately opens both the Web App (`http://localhost:5173`) and API Documentation (`http://localhost:8000/docs`) in your default browser.
+
+---
+
+### Manual Setup: Running in 3 Terminals
 
 ### Terminal 1: Start Redis
 ```bash

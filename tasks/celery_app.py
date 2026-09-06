@@ -16,6 +16,8 @@ celery_app = Celery(
     include=[
         "tasks.pdf_tasks",
         "tasks.embedding_tasks",
+        "tasks.evaluation_tasks",
+        "tasks.exam_tasks",
     ],
 )
 

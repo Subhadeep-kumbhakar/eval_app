@@ -65,6 +65,29 @@ class ExamOut(BaseModel):
         from_attributes = True
 
 
+# Rubric & Evaluation Schemas
+class RubricCriterion(BaseModel):
+    criterion: str
+    status: str  # "satisfied", "partially_satisfied", "missing", "incorrect"
+    score: float = 0.0
+    max_score: float = 1.0
+    feedback: str = ""
+
+
+class SubjectiveEvaluationDetail(BaseModel):
+    score: float
+    max_score: float
+    percentage: float
+    confidence: float = 0.9
+    overall_assessment: str  # e.g., "Fully correct", "Mostly correct", "Partially correct", "Needs improvement"
+    criteria: List[RubricCriterion] = []
+    strengths: List[str] = []
+    missing_points: List[str] = []
+    improvement_suggestion: str = ""
+    evaluation_method: str = "ai_rubric"  # "ai_rubric" or "semantic_fallback"
+    semantic_similarity: Optional[float] = None
+
+
 # Submission Schemas
 class SubmissionCreate(BaseModel):
     exam_id: int
