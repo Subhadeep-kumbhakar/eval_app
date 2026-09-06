@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, ForeignKey, DateTime, Text, JSON, Enum
+    Column, Integer, String, Float, ForeignKey, DateTime, Text, JSON, Enum, Boolean, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from api.database import Base
@@ -17,6 +17,7 @@ class Teacher(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     exams = relationship("Exam", back_populates="teacher", cascade="all, delete-orphan")
+    classrooms = relationship("ClassRoom", back_populates="teacher", cascade="all, delete-orphan")
 
 
 class Student(Base):
@@ -30,6 +31,53 @@ class Student(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     submissions = relationship("Submission", back_populates="student")
+    enrollments = relationship("Enrollment", back_populates="student", cascade="all, delete-orphan")
+
+
+class ClassRoom(Base):
+    __tablename__ = "classrooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, default="", nullable=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    teacher = relationship("Teacher", back_populates="classrooms")
+    enrollments = relationship("Enrollment", back_populates="classroom", cascade="all, delete-orphan")
+    assignments = relationship("ExamAssignment", back_populates="classroom", cascade="all, delete-orphan")
+
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+    __table_args__ = (
+        UniqueConstraint("class_id", "student_id", name="uq_class_student"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    classroom = relationship("ClassRoom", back_populates="enrollments")
+    student = relationship("Student", back_populates="enrollments")
+
+
+class ExamAssignment(Base):
+    __tablename__ = "exam_assignments"
+    __table_args__ = (
+        UniqueConstraint("exam_id", "class_id", name="uq_exam_class"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    class_id = Column(Integer, ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False, index=True)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+    due_date = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    exam = relationship("Exam", back_populates="assignments")
+    classroom = relationship("ClassRoom", back_populates="assignments")
 
 
 class Exam(Base):
@@ -53,6 +101,7 @@ class Exam(Base):
     teacher = relationship("Teacher", back_populates="exams")
     questions = relationship("Question", back_populates="exam", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="exam")
+    assignments = relationship("ExamAssignment", back_populates="exam", cascade="all, delete-orphan")
 
 
 class Question(Base):

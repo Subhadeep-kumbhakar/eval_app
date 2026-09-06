@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from api.database import get_db
-from api.models import Submission, Exam, Question
+from api.models import Submission, Exam, Question, ExamAssignment, Enrollment
 from api.schemas import SubmissionCreate, SubmissionOut
 from api.security import get_current_user
 from evaluation.mcq_evaluator import evaluate_mcq
@@ -33,12 +33,29 @@ def submit_answers(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user["role"] != "student":
+    if current_user.get("role") != "student":
         raise HTTPException(status_code=403, detail="Only students can submit exams")
 
     exam = db.query(Exam).filter(Exam.id == data.exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
+
+    # Verify student is enrolled in a class with an active assignment for this exam
+    has_access = (
+        db.query(ExamAssignment)
+        .join(Enrollment, Enrollment.class_id == ExamAssignment.class_id)
+        .filter(
+            ExamAssignment.exam_id == data.exam_id,
+            ExamAssignment.is_active == True,
+            Enrollment.student_id == current_user["id"],
+        )
+        .first()
+    )
+    if not has_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to submit this exam. It is not assigned to your enrolled classes.",
+        )
 
     evaluations = {}
     total_score = 0.0
@@ -189,9 +206,15 @@ def get_student_submissions(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user["role"] != "student":
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    return db.query(Submission).filter(Submission.student_id == current_user["id"]).order_by(Submission.id.desc()).all()
+    """Return all submissions belonging to the logged-in student."""
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can view their submission history")
+    return (
+        db.query(Submission)
+        .filter(Submission.student_id == current_user["id"])
+        .order_by(Submission.id.desc())
+        .all()
+    )
 
 
 @router.get("", response_model=List[SubmissionOut])
@@ -200,9 +223,30 @@ def list_submissions(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user["role"] == "teacher":
-        return db.query(Submission).order_by(Submission.id.desc()).all()
-    return db.query(Submission).filter(Submission.student_id == current_user["id"]).order_by(Submission.id.desc()).all()
+    """Role-aware submission listing:
+    - Teacher: Returns ONLY submissions for exams created by this teacher.
+    - Student: Returns ONLY submissions made by this student.
+    """
+    role = current_user.get("role")
+    user_id = current_user.get("id")
+
+    if role == "teacher":
+        return (
+            db.query(Submission)
+            .join(Exam, Submission.exam_id == Exam.id)
+            .filter(Exam.teacher_id == user_id)
+            .order_by(Submission.id.desc())
+            .all()
+        )
+    elif role == "student":
+        return (
+            db.query(Submission)
+            .filter(Submission.student_id == user_id)
+            .order_by(Submission.id.desc())
+            .all()
+        )
+    else:
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
 
 @router.get("/exam/{exam_id}", response_model=List[SubmissionOut])
@@ -211,7 +255,35 @@ def get_exam_submissions(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Submission).filter(Submission.exam_id == exam_id).order_by(Submission.id.desc()).all()
+    """Return submissions for a specific exam:
+    - Teacher: Only if they created/own this exam.
+    - Student: Only their own submission for this exam.
+    """
+    role = current_user.get("role")
+    user_id = current_user.get("id")
+
+    if role == "teacher":
+        exam = db.query(Exam).filter(Exam.id == exam_id, Exam.teacher_id == user_id).first()
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Exam not found or you do not own it",
+            )
+        return (
+            db.query(Submission)
+            .filter(Submission.exam_id == exam_id)
+            .order_by(Submission.id.desc())
+            .all()
+        )
+    elif role == "student":
+        return (
+            db.query(Submission)
+            .filter(Submission.exam_id == exam_id, Submission.student_id == user_id)
+            .order_by(Submission.id.desc())
+            .all()
+        )
+    else:
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
 
 @router.get("/{submission_id}", response_model=SubmissionOut)
@@ -220,9 +292,30 @@ def get_single_submission(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Retrieve details of a single submission:
+    - Teacher: Only if the exam was created by this teacher.
+    - Student: Only if they made the submission.
+    """
+    role = current_user.get("role")
+    user_id = current_user.get("id")
+
     sub = db.query(Submission).filter(Submission.id == submission_id).first()
     if not sub:
-        raise HTTPException(status_code=404, detail="Submission not found")
-    if current_user["role"] != "teacher" and sub.student_id != current_user["id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
+
+    if role == "teacher":
+        if not sub.exam or sub.exam.teacher_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Submission not found or you do not own the exam",
+            )
+    elif role == "student":
+        if sub.student_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized to view this submission",
+            )
+    else:
         raise HTTPException(status_code=403, detail="Unauthorized")
+
     return sub

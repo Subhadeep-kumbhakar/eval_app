@@ -1,1 +1,1 @@
-from . import auth, exams, submission, tasks
+from . import auth, exams, submission, tasks, classes

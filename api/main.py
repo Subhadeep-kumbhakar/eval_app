@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.database import engine, Base
-from api.routers import auth, exams, submission, tasks
+from api.routers import auth, exams, submission, tasks, classes
 
 logger = logging.getLogger("eval_app.api")
 
@@ -35,7 +35,9 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(classes.router)
 app.include_router(exams.router)
+app.include_router(exams.student_exams_router)
 app.include_router(submission.router)
 app.include_router(tasks.router)
 

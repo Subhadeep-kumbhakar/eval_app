@@ -16,12 +16,14 @@ import QuestionBank from './QuestionBank';
 import Results from './Results';
 import Analytics from './Analytics';
 import Students from './Students';
+import ClassManagement from './ClassManagement';
 import { Settings as SettingsPage } from './Settings';
 import { ExamsGrid } from './Exams';
 import { DefaultView } from './DefaultView';
 
 const TEACHER_NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'classes', label: 'Classes', icon: GraduationCap },
   { id: 'exams', label: 'Exams', icon: FileText },
   { id: 'question-bank', label: 'Question Bank', icon: Library },
   { id: 'create-exam', label: 'Create Exam', icon: Plus, accent: true },
@@ -32,6 +34,7 @@ const TEACHER_NAV = [
 
 const STUDENT_NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'my-classes', label: 'My Classes', icon: GraduationCap },
   { id: 'my-exams', label: 'My Exams', icon: FileText },
   { id: 'practice', label: 'Practice', icon: Target },
   { id: 'performance', label: 'Performance', icon: BarChart3 },
@@ -40,6 +43,8 @@ const STUDENT_NAV = [
 
 const VIEW_TITLES = {
   dashboard: 'Dashboard',
+  classes: 'Classrooms & Cohorts',
+  'my-classes': 'My Classes',
   exams: 'Exams',
   'my-exams': 'My Exams',
   'create-exam': 'Create Exam',
@@ -78,12 +83,13 @@ export function AppShell({ token, setToken, role, setRole }) {
 
   const fetchExams = useCallback(async () => {
     try {
-      const res = await API.get('/exams/');
-      setExams(res.data);
+      const endpoint = role === 'student' ? '/student/exams' : '/exams/';
+      const res = await API.get(endpoint);
+      setExams(res.data || []);
     } catch (e) {
       toast.push('Could not load exams', 'error');
     }
-  }, []);
+  }, [role]);
 
   const fetchSubmissions = useCallback(async () => {
     try {
@@ -138,7 +144,7 @@ export function AppShell({ token, setToken, role, setRole }) {
         }
       })
       .catch((e) => console.log('Profile load:', e.message));
-  }, [token, role]);
+  }, [token]);
 
   const logout = () => {
     localStorage.removeItem('eval_token');
@@ -157,7 +163,7 @@ export function AppShell({ token, setToken, role, setRole }) {
     [profile, role]
   );
 
-  // Page router
+  // Main view router
   const page = (() => {
     if (view === 'dashboard') {
       return role === 'teacher' ? (
@@ -166,8 +172,8 @@ export function AppShell({ token, setToken, role, setRole }) {
           submissions={submissions}
           loading={loading} 
           onCreate={() => go('create-exam')} 
-          onViewExam={setPreviewExam} 
-          onStudents={() => go('students')} 
+          onViewExam={openExam} 
+          onStudents={() => go('classes')} 
           onResults={() => go('results')} 
         />
       ) : (
@@ -175,8 +181,19 @@ export function AppShell({ token, setToken, role, setRole }) {
           exams={exams} 
           submissions={submissions} 
           loading={loading} 
-          onStart={(e) => setTakingExam(e)} 
+          onStart={setTakingExam} 
           onResults={() => go('results')} 
+        />
+      );
+    }
+    if (view === 'classes' || view === 'my-classes') {
+      return (
+        <ClassManagement 
+          role={role} 
+          exams={exams} 
+          onStartExam={setTakingExam} 
+          onViewExam={openExam}
+          onRefreshExams={fetchExams}
         />
       );
     }

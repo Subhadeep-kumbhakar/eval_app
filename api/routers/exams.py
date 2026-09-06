@@ -6,8 +6,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from api.database import get_db
-from api.models import Exam, Question, TaskJob
-from api.schemas import ExamOut, TaskCreateResponse
+from api.models import Exam, Question, TaskJob, ClassRoom, Enrollment, ExamAssignment
+from api.schemas import ExamOut, TaskCreateResponse, ExamAssignmentCreate, ExamAssignmentOut
 from api.security import get_current_user
 from pdf_processing.extractor import extract_text_from_pdf
 from generation.gemini_generator import generate_exam_from_text
@@ -17,6 +17,7 @@ from tasks.embedding_tasks import process_pdf_and_embed_pipeline_task
 from tasks.exam_tasks import generate_ai_exam_task
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
+student_exams_router = APIRouter(prefix="/student", tags=["Student"])
 
 
 def clean_exam_options(exam: Exam):
@@ -220,13 +221,230 @@ async def generate_ai_exam(
 
 
 
+# ============================================================
+# 7. EXAM ASSIGNMENT (Teacher Only)
+# ============================================================
+
+@router.post("/{exam_id}/assign/{class_id}", response_model=ExamAssignmentOut, status_code=status.HTTP_201_CREATED)
+def assign_exam_to_class(
+    exam_id: int,
+    class_id: int,
+    data: Optional[ExamAssignmentCreate] = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Assign an exam to a classroom. Teacher must own both exam and classroom."""
+    if current_user.get("role") != "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers can assign exams to classrooms",
+        )
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam or exam.teacher_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found or you do not own it",
+        )
+
+    classroom = db.query(ClassRoom).filter(ClassRoom.id == class_id).first()
+    if not classroom or classroom.teacher_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Classroom not found or you do not own it",
+        )
+
+    existing = (
+        db.query(ExamAssignment)
+        .filter(ExamAssignment.exam_id == exam_id, ExamAssignment.class_id == class_id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Exam is already assigned to this classroom",
+        )
+
+    assignment = ExamAssignment(
+        exam_id=exam_id,
+        class_id=class_id,
+        due_date=data.due_date if data else None,
+        is_active=data.is_active if (data and data.is_active is not None) else True,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+
+    return ExamAssignmentOut(
+        id=assignment.id,
+        exam_id=assignment.exam_id,
+        class_id=assignment.class_id,
+        assigned_at=assignment.assigned_at,
+        due_date=assignment.due_date,
+        is_active=assignment.is_active,
+        class_name=classroom.name,
+        exam_title=exam.title,
+    )
+
+
+@router.delete("/{exam_id}/assign/{class_id}")
+def unassign_exam_from_class(
+    exam_id: int,
+    class_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove exam assignment from a class. Only the owner teacher can remove it."""
+    if current_user.get("role") != "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers can unassign exams",
+        )
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam or exam.teacher_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found or you do not own it",
+        )
+
+    assignment = (
+        db.query(ExamAssignment)
+        .filter(ExamAssignment.exam_id == exam_id, ExamAssignment.class_id == class_id)
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam assignment not found",
+        )
+
+    db.delete(assignment)
+    db.commit()
+    return {"message": "Exam unassigned successfully"}
+
+
+@router.get("/{exam_id}/assignments", response_model=List[ExamAssignmentOut])
+def get_exam_assignments(
+    exam_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return classrooms this exam has been assigned to. Only exam owner can access."""
+    if current_user.get("role") != "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers can view exam assignments",
+        )
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam or exam.teacher_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found or you do not own it",
+        )
+
+    assignments = (
+        db.query(ExamAssignment)
+        .filter(ExamAssignment.exam_id == exam_id)
+        .order_by(ExamAssignment.id.desc())
+        .all()
+    )
+
+    results = []
+    for a in assignments:
+        results.append(
+            ExamAssignmentOut(
+                id=a.id,
+                exam_id=a.exam_id,
+                class_id=a.class_id,
+                assigned_at=a.assigned_at,
+                due_date=a.due_date,
+                is_active=a.is_active,
+                class_name=a.classroom.name if a.classroom else None,
+                exam_title=exam.title,
+            )
+        )
+    return results
+
+
+# ============================================================
+# 8. STUDENT EXAM ACCESS CONTROL
+# ============================================================
+
+@student_exams_router.get("/exams", response_model=List[ExamOut])
+def get_student_assigned_exams(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return ONLY active exams assigned to classes in which the student is enrolled."""
+    if current_user.get("role") != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only students can access student exams",
+        )
+
+    exams = (
+        db.query(Exam)
+        .join(ExamAssignment, ExamAssignment.exam_id == Exam.id)
+        .join(Enrollment, Enrollment.class_id == ExamAssignment.class_id)
+        .filter(
+            Enrollment.student_id == current_user["id"],
+            ExamAssignment.is_active == True,
+        )
+        .distinct()
+        .order_by(Exam.id.desc())
+        .all()
+    )
+    for exam in exams:
+        clean_exam_options(exam)
+    return exams
+
+
+@router.get("/student/exams", response_model=List[ExamOut])
+def get_student_assigned_exams_alias(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Alias for GET /student/exams within the /exams prefix."""
+    return get_student_assigned_exams(current_user=current_user, db=db)
+
+
+# ============================================================
+# 6. EXAM OWNERSHIP & GENERAL EXAM ACCESS
+# ============================================================
+
 @router.get("", response_model=List[ExamOut])
 @router.get("/", response_model=List[ExamOut])
 def list_exams(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    exams = db.query(Exam).order_by(Exam.id.desc()).all()
+    """Role-aware exam listing:
+    - Teacher: Returns ONLY exams owned by the teacher.
+    - Student: Returns ONLY active exams assigned to classes they are enrolled in.
+    """
+    role = current_user.get("role")
+    user_id = current_user.get("id")
+
+    if role == "teacher":
+        exams = db.query(Exam).filter(Exam.teacher_id == user_id).order_by(Exam.id.desc()).all()
+    elif role == "student":
+        exams = (
+            db.query(Exam)
+            .join(ExamAssignment, ExamAssignment.exam_id == Exam.id)
+            .join(Enrollment, Enrollment.class_id == ExamAssignment.class_id)
+            .filter(
+                Enrollment.student_id == user_id,
+                ExamAssignment.is_active == True,
+            )
+            .distinct()
+            .order_by(Exam.id.desc())
+            .all()
+        )
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized role")
+
     for exam in exams:
         clean_exam_options(exam)
     return exams
@@ -238,19 +456,60 @@ def get_exam(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Role-based direct exam access verification:
+    - Teacher: Must be the owner of the exam.
+    - Student: Must be enrolled in at least one class that has an active assignment for this exam.
+    If unauthorized: Returns 404 to avoid leaking private exam existence.
+    """
+    role = current_user.get("role")
+    user_id = current_user.get("id")
+
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
-        raise HTTPException(status_code=404, detail="Exam not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+
+    if role == "teacher":
+        if exam.teacher_id != user_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+    elif role == "student":
+        has_access = (
+            db.query(ExamAssignment)
+            .join(Enrollment, Enrollment.class_id == ExamAssignment.class_id)
+            .filter(
+                ExamAssignment.exam_id == exam_id,
+                ExamAssignment.is_active == True,
+                Enrollment.student_id == user_id,
+            )
+            .first()
+        )
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Exam not found or not assigned to your classes",
+            )
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized role")
+
     return clean_exam_options(exam)
 
 
 @router.delete("/{exam_id}")
-def delete_exam(exam_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user["role"] != "teacher":
-        raise HTTPException(status_code=403, detail="Only teachers can delete exams")
+def delete_exam(
+    exam_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete an exam. Allowed only if current user is a teacher and owns the exam."""
+    if current_user.get("role") != "teacher":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only teachers can delete exams")
+
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not exam:
-        raise HTTPException(status_code=404, detail="Exam not found")
+    if not exam or exam.teacher_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found or you do not own it",
+        )
+
     db.delete(exam)
     db.commit()
     return {"message": "Exam deleted successfully"}

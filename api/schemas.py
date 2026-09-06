@@ -141,4 +141,75 @@ class TaskStatusResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     class Config:
-        from_attributes = True
+        from_attributes = True
+
+
+# ============================================================
+# Classroom & Enrollment Schemas
+# ============================================================
+
+class ClassCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+
+class StudentOut(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    roll_number: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClassOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = ""
+    teacher_id: int
+    created_at: Optional[datetime] = None
+    student_count: Optional[int] = 0
+    exam_count: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+
+class EnrollmentOut(BaseModel):
+    id: int
+    class_id: int
+    student_id: int
+    created_at: Optional[datetime] = None
+    student: Optional[StudentOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ExamAssignmentCreate(BaseModel):
+    due_date: Optional[datetime] = None
+    is_active: Optional[bool] = True
+
+
+class ExamAssignmentOut(BaseModel):
+    id: int
+    exam_id: int
+    class_id: int
+    assigned_at: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    is_active: bool = True
+    class_name: Optional[str] = None
+    exam_title: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClassWithStudents(ClassOut):
+    students: List[StudentOut] = []
+
+
+class ClassWithExams(ClassOut):
+    exams: List[ExamOut] = []
